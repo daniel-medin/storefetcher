@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using StoreFetcher.Data;
 
@@ -11,9 +12,11 @@ using StoreFetcher.Data;
 namespace StoreFetcher.Migrations
 {
     [DbContext(typeof(StoreFetcherDbContext))]
-    partial class StoreFetcherDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260528092048_AddStoreCorrectionsAndDatasetMetadata")]
+    partial class AddStoreCorrectionsAndDatasetMetadata
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

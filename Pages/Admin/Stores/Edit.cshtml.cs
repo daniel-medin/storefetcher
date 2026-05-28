@@ -14,7 +14,10 @@ public sealed class EditModel(StoreFetcherDbContext db) : PageModel
 
     public async Task<IActionResult> OnGetAsync(int id)
     {
-        var store = await db.Stores.AsNoTracking().FirstOrDefaultAsync(store => store.Id == id);
+        var store = await db.Stores
+            .AsNoTracking()
+            .Include(store => store.Correction)
+            .FirstOrDefaultAsync(store => store.Id == id);
         if (store is null)
         {
             return NotFound();
@@ -31,13 +34,16 @@ public sealed class EditModel(StoreFetcherDbContext db) : PageModel
             return Page();
         }
 
-        var store = await db.Stores.FirstOrDefaultAsync(store => store.Id == id);
+        var store = await db.Stores
+            .Include(store => store.Correction)
+            .FirstOrDefaultAsync(store => store.Id == id);
         if (store is null)
         {
             return NotFound();
         }
 
-        Input.ApplyTo(store);
+        store.Correction ??= new StoreCorrection { StoreId = store.Id };
+        Input.ApplyTo(store.Correction);
         await db.SaveChangesAsync();
 
         return RedirectToPage("/Admin/Stores/Index");
@@ -70,40 +76,40 @@ public sealed class EditModel(StoreFetcherDbContext db) : PageModel
             new()
             {
                 Id = store.Id,
-                Name = store.Name,
-                Street = store.Street,
-                HouseNumber = store.HouseNumber,
-                Postcode = store.Postcode,
-                City = store.City,
-                Latitude = store.Latitude,
-                Longitude = store.Longitude,
-                Shop = store.Shop,
-                Brand = store.Brand,
-                Website = store.Website,
-                Phone = store.Phone,
-                OpeningHours = store.OpeningHours,
-                Notes = store.Notes,
-                IsActive = store.IsActive,
+                Name = store.Correction?.Name ?? store.Name,
+                Street = store.Correction?.Street ?? store.Street,
+                HouseNumber = store.Correction?.HouseNumber ?? store.HouseNumber,
+                Postcode = store.Correction?.Postcode ?? store.Postcode,
+                City = store.Correction?.City ?? store.City,
+                Latitude = store.Correction?.Latitude ?? store.Latitude,
+                Longitude = store.Correction?.Longitude ?? store.Longitude,
+                Shop = store.Correction?.Shop ?? store.Shop,
+                Brand = store.Correction?.Brand ?? store.Brand,
+                Website = store.Correction?.Website ?? store.Website,
+                Phone = store.Correction?.Phone ?? store.Phone,
+                OpeningHours = store.Correction?.OpeningHours ?? store.OpeningHours,
+                Notes = store.Correction?.Notes ?? store.Notes,
+                IsActive = store.Correction?.IsActive ?? store.IsActive,
                 OsmUrl = store.OsmUrl,
             };
 
-        public void ApplyTo(Store store)
+        public void ApplyTo(StoreCorrection correction)
         {
-            store.Name = Name.Trim();
-            store.Street = Clean(Street);
-            store.HouseNumber = Clean(HouseNumber);
-            store.Postcode = Clean(Postcode);
-            store.City = Clean(City);
-            store.Latitude = Latitude;
-            store.Longitude = Longitude;
-            store.Shop = Clean(Shop);
-            store.Brand = Clean(Brand);
-            store.Website = Clean(Website);
-            store.Phone = Clean(Phone);
-            store.OpeningHours = Clean(OpeningHours);
-            store.Notes = Clean(Notes);
-            store.IsActive = IsActive;
-            store.UpdatedAt = DateTimeOffset.UtcNow;
+            correction.Name = Name.Trim();
+            correction.Street = Clean(Street);
+            correction.HouseNumber = Clean(HouseNumber);
+            correction.Postcode = Clean(Postcode);
+            correction.City = Clean(City);
+            correction.Latitude = Latitude;
+            correction.Longitude = Longitude;
+            correction.Shop = Clean(Shop);
+            correction.Brand = Clean(Brand);
+            correction.Website = Clean(Website);
+            correction.Phone = Clean(Phone);
+            correction.OpeningHours = Clean(OpeningHours);
+            correction.Notes = Clean(Notes);
+            correction.IsActive = IsActive;
+            correction.UpdatedAt = DateTimeOffset.UtcNow;
         }
 
         private static string? Clean(string? value) =>

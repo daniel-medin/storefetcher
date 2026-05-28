@@ -2,8 +2,10 @@ using Hangfire;
 using Hangfire.MySql;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.OpenApi;
 using StoreFetcher.Data;
 using StoreFetcher.Dtos;
+using StoreFetcher.Models;
 using StoreFetcher.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -23,7 +25,15 @@ builder.Services.AddHttpClient<OverpassClient>();
 builder.Services.AddScoped<StoreImportService>();
 builder.Services.AddScoped<StoreScanJob>();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "StoreFetcher API",
+        Version = "v1",
+        Description = DatasetMetadata.AttributionStatement,
+    });
+});
 
 var hangfireEnabled = builder.Configuration.GetValue("Hangfire:Enabled", false);
 if (hangfireEnabled)
@@ -79,28 +89,40 @@ app.MapGet("/api/stores", async (
     page = Math.Max(page, 1);
     pageSize = Math.Clamp(pageSize, 1, 250);
 
-    var query = db.Stores.AsNoTracking().OrderBy(store => store.Name).AsQueryable();
+    var query = db.Stores
+        .AsNoTracking()
+        .Include(store => store.Correction)
+        .OrderBy(store => store.Correction != null && store.Correction.Name != null
+            ? store.Correction.Name
+            : store.Name)
+        .AsQueryable();
 
     if (!string.IsNullOrWhiteSpace(q))
     {
         query = query.Where(store =>
             store.Name.Contains(q) ||
+            (store.Correction != null && store.Correction.Name != null && store.Correction.Name.Contains(q)) ||
             (store.City != null && store.City.Contains(q)) ||
+            (store.Correction != null && store.Correction.City != null && store.Correction.City.Contains(q)) ||
             (store.Street != null && store.Street.Contains(q)) ||
-            (store.Brand != null && store.Brand.Contains(q)));
+            (store.Correction != null && store.Correction.Street != null && store.Correction.Street.Contains(q)) ||
+            (store.Brand != null && store.Brand.Contains(q)) ||
+            (store.Correction != null && store.Correction.Brand != null && store.Correction.Brand.Contains(q)));
     }
 
     if (!string.IsNullOrWhiteSpace(brand))
     {
-        query = query.Where(store => store.Brand != null && store.Brand.Contains(brand));
+        query = query.Where(store =>
+            (store.Brand != null && store.Brand.Contains(brand)) ||
+            (store.Correction != null && store.Correction.Brand != null && store.Correction.Brand.Contains(brand)));
     }
 
     var total = await query.CountAsync();
-    var stores = await query
+    var storeRows = await query
         .Skip((page - 1) * pageSize)
         .Take(pageSize)
-        .Select(store => StoreResponse.FromStore(store))
         .ToListAsync();
+    var stores = storeRows.Select(StoreResponse.FromStore).ToList();
 
     return Results.Ok(new PagedStoreResponse(stores, page, pageSize, total));
 })
@@ -109,10 +131,34 @@ app.MapGet("/api/stores", async (
 
 app.MapGet("/api/stores/{id:int}", async (StoreFetcherDbContext db, int id) =>
 {
-    var store = await db.Stores.AsNoTracking().FirstOrDefaultAsync(store => store.Id == id);
+    var store = await db.Stores
+        .AsNoTracking()
+        .Include(store => store.Correction)
+        .FirstOrDefaultAsync(store => store.Id == id);
     return store is null ? Results.NotFound() : Results.Ok(StoreResponse.FromStore(store));
 })
 .WithName("GetStore")
+;
+
+app.MapGet("/api/dataset", async (StoreFetcherDbContext db) =>
+{
+    var storeCount = await db.Stores.AsNoTracking().CountAsync();
+    var generatedAt = await db.Stores
+        .AsNoTracking()
+        .Select(store => (DateTimeOffset?)store.LastSeenAt)
+        .MaxAsync();
+
+    return Results.Ok(new DatasetMetadataResponse(
+        DatasetMetadata.Name,
+        DatasetMetadata.Source,
+        DatasetMetadata.Attribution,
+        DatasetMetadata.License,
+        DatasetMetadata.LicenseUrl,
+        DatasetMetadata.AttributionStatement,
+        generatedAt,
+        storeCount));
+})
+.WithName("GetDatasetMetadata")
 ;
 
 app.MapPut("/api/stores/{id:int}", async (
@@ -120,13 +166,16 @@ app.MapPut("/api/stores/{id:int}", async (
     int id,
     UpdateStoreRequest request) =>
 {
-    var store = await db.Stores.FirstOrDefaultAsync(store => store.Id == id);
+    var store = await db.Stores
+        .Include(store => store.Correction)
+        .FirstOrDefaultAsync(store => store.Id == id);
     if (store is null)
     {
         return Results.NotFound();
     }
 
-    request.ApplyTo(store);
+    store.Correction ??= new StoreCorrection { StoreId = store.Id };
+    request.ApplyTo(store.Correction);
     await db.SaveChangesAsync();
 
     return Results.Ok(StoreResponse.FromStore(store));

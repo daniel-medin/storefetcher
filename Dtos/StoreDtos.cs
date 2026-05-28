@@ -28,33 +28,50 @@ public sealed record StoreResponse(
     string OsmUrl,
     string? Notes,
     bool IsActive,
+    bool HasCorrection,
     DateTimeOffset UpdatedAt,
     DateTimeOffset LastSeenAt)
 {
-    public static StoreResponse FromStore(Store store) =>
+    public static StoreResponse FromStore(Store store)
+    {
+        var correction = store.Correction;
+
+        return
         new(
             store.Id,
-            store.Name,
-            store.Street,
-            store.HouseNumber,
-            store.Postcode,
-            store.City,
-            store.Country,
-            store.Latitude,
-            store.Longitude,
-            store.Shop,
-            store.Brand,
-            store.Website,
-            store.Phone,
-            store.OpeningHours,
+            correction?.Name ?? store.Name,
+            correction?.Street ?? store.Street,
+            correction?.HouseNumber ?? store.HouseNumber,
+            correction?.Postcode ?? store.Postcode,
+            correction?.City ?? store.City,
+            correction?.Country ?? store.Country,
+            correction?.Latitude ?? store.Latitude,
+            correction?.Longitude ?? store.Longitude,
+            correction?.Shop ?? store.Shop,
+            correction?.Brand ?? store.Brand,
+            correction?.Website ?? store.Website,
+            correction?.Phone ?? store.Phone,
+            correction?.OpeningHours ?? store.OpeningHours,
             store.OsmType,
             store.OsmId,
             store.OsmUrl,
-            store.Notes,
-            store.IsActive,
-            store.UpdatedAt,
+            correction?.Notes ?? store.Notes,
+            correction?.IsActive ?? store.IsActive,
+            correction is not null,
+            correction?.UpdatedAt ?? store.UpdatedAt,
             store.LastSeenAt);
+    }
 }
+
+public sealed record DatasetMetadataResponse(
+    string Name,
+    string Source,
+    string Attribution,
+    string License,
+    string LicenseUrl,
+    string AttributionStatement,
+    DateTimeOffset? GeneratedAt,
+    int StoreCount);
 
 public sealed record UpdateStoreRequest(
     string Name,
@@ -73,24 +90,24 @@ public sealed record UpdateStoreRequest(
     string? Notes,
     bool IsActive)
 {
-    public void ApplyTo(Store store)
+    public void ApplyTo(StoreCorrection correction)
     {
-        store.Name = Name.Trim();
-        store.Street = Clean(Street);
-        store.HouseNumber = Clean(HouseNumber);
-        store.Postcode = Clean(Postcode);
-        store.City = Clean(City);
-        store.Country = string.IsNullOrWhiteSpace(Country) ? "SE" : Country.Trim().ToUpperInvariant();
-        store.Latitude = Latitude;
-        store.Longitude = Longitude;
-        store.Shop = Clean(Shop);
-        store.Brand = Clean(Brand);
-        store.Website = Clean(Website);
-        store.Phone = Clean(Phone);
-        store.OpeningHours = Clean(OpeningHours);
-        store.Notes = Clean(Notes);
-        store.IsActive = IsActive;
-        store.UpdatedAt = DateTimeOffset.UtcNow;
+        correction.Name = Name.Trim();
+        correction.Street = Clean(Street);
+        correction.HouseNumber = Clean(HouseNumber);
+        correction.Postcode = Clean(Postcode);
+        correction.City = Clean(City);
+        correction.Country = string.IsNullOrWhiteSpace(Country) ? "SE" : Country.Trim().ToUpperInvariant();
+        correction.Latitude = Latitude;
+        correction.Longitude = Longitude;
+        correction.Shop = Clean(Shop);
+        correction.Brand = Clean(Brand);
+        correction.Website = Clean(Website);
+        correction.Phone = Clean(Phone);
+        correction.OpeningHours = Clean(OpeningHours);
+        correction.Notes = Clean(Notes);
+        correction.IsActive = IsActive;
+        correction.UpdatedAt = DateTimeOffset.UtcNow;
     }
 
     private static string? Clean(string? value) =>

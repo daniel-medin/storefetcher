@@ -37,6 +37,7 @@
                 <th>Brand</th>
                 <th>Address</th>
                 <th>Coordinates</th>
+                <th>Correction</th>
                 <th>Updated</th>
                 <th></th>
             </tr>
@@ -46,13 +47,14 @@
             {
                 <tr>
                     <td>
-                        <div class="fw-semibold">@store.Name</div>
+                        <div class="fw-semibold">@Model.Name(store)</div>
                         <a href="@store.OsmUrl" target="_blank" rel="noreferrer">@store.OsmType/@store.OsmId</a>
                     </td>
-                    <td>@store.Brand</td>
+                    <td>@Model.Brand(store)</td>
                     <td>@Model.FormatAddress(store)</td>
-                    <td>@store.Latitude.ToString("F6"), @store.Longitude.ToString("F6")</td>
-                    <td>@store.UpdatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                    <td>@Model.Latitude(store).ToString("F6"), @Model.Longitude(store).ToString("F6")</td>
+                    <td>@(store.Correction is null ? "No" : "Yes")</td>
+                    <td>@Model.UpdatedAt(store).ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
                     <td class="text-end">
                         <a class="btn btn-sm btn-outline-primary" asp-page="/Admin/Stores/Edit" asp-route-id="@store.Id">Edit</a>
                     </td>

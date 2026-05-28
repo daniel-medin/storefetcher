@@ -20,15 +20,25 @@ public sealed class IndexModel(StoreFetcherDbContext db, IStoreScanQueue scanQue
 
     public async Task OnGetAsync()
     {
-        var query = db.Stores.AsNoTracking().OrderBy(store => store.Name).AsQueryable();
+        var query = db.Stores
+            .AsNoTracking()
+            .Include(store => store.Correction)
+            .OrderBy(store => store.Correction != null && store.Correction.Name != null
+                ? store.Correction.Name
+                : store.Name)
+            .AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(Q))
         {
             query = query.Where(store =>
                 store.Name.Contains(Q) ||
+                (store.Correction != null && store.Correction.Name != null && store.Correction.Name.Contains(Q)) ||
                 (store.Brand != null && store.Brand.Contains(Q)) ||
+                (store.Correction != null && store.Correction.Brand != null && store.Correction.Brand.Contains(Q)) ||
                 (store.Street != null && store.Street.Contains(Q)) ||
-                (store.City != null && store.City.Contains(Q)));
+                (store.Correction != null && store.Correction.Street != null && store.Correction.Street.Contains(Q)) ||
+                (store.City != null && store.City.Contains(Q)) ||
+                (store.Correction != null && store.Correction.City != null && store.Correction.City.Contains(Q)));
         }
 
         TotalCount = await query.CountAsync();
@@ -49,9 +59,9 @@ public sealed class IndexModel(StoreFetcherDbContext db, IStoreScanQueue scanQue
     {
         var parts = new[]
         {
-            JoinStreet(store.Street, store.HouseNumber),
-            store.Postcode,
-            store.City,
+            JoinStreet(store.Correction?.Street ?? store.Street, store.Correction?.HouseNumber ?? store.HouseNumber),
+            store.Correction?.Postcode ?? store.Postcode,
+            store.Correction?.City ?? store.City,
         }.Where(part => !string.IsNullOrWhiteSpace(part));
 
         var address = string.Join(", ", parts);
@@ -62,4 +72,10 @@ public sealed class IndexModel(StoreFetcherDbContext db, IStoreScanQueue scanQue
         string.IsNullOrWhiteSpace(street)
             ? null
             : string.Join(" ", new[] { street, houseNumber }.Where(part => !string.IsNullOrWhiteSpace(part)));
+
+    public string Name(Store store) => store.Correction?.Name ?? store.Name;
+    public string? Brand(Store store) => store.Correction?.Brand ?? store.Brand;
+    public double Latitude(Store store) => store.Correction?.Latitude ?? store.Latitude;
+    public double Longitude(Store store) => store.Correction?.Longitude ?? store.Longitude;
+    public DateTimeOffset UpdatedAt(Store store) => store.Correction?.UpdatedAt ?? store.UpdatedAt;
 }
