@@ -7,6 +7,9 @@ using StoreFetcher.Data;
 using StoreFetcher.Dtos;
 using StoreFetcher.Models;
 using StoreFetcher.Services;
+using System.Security.Cryptography;
+using System.Text.Json;
+using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 var connectionString = builder.Configuration.GetConnectionString("StoreFetcher")
@@ -47,6 +50,7 @@ if (hangfireEnabled)
                 QueuePollInterval = TimeSpan.FromSeconds(15),
             })));
     builder.Services.AddScoped<IStoreScanQueue, HangfireStoreScanQueue>();
+    builder.Services.AddScoped<IStoreScanMonitor, HangfireStoreScanMonitor>();
 
     if (builder.Configuration.GetValue("Hangfire:StartServer", false))
     {
@@ -56,6 +60,7 @@ if (hangfireEnabled)
 else
 {
     builder.Services.AddScoped<IStoreScanQueue, DisabledStoreScanQueue>();
+    builder.Services.AddScoped<IStoreScanMonitor, DisabledStoreScanMonitor>();
 }
 
 var app = builder.Build();
@@ -183,6 +188,77 @@ app.MapPut("/api/stores/{id:int}", async (
 .WithName("UpdateStore")
 ;
 
+app.MapPost("/api/admin/import/stores", async (
+    HttpRequest request,
+    IConfiguration configuration,
+    StoreImportService importer,
+    ILogger<Program> logger,
+    CancellationToken cancellationToken) =>
+{
+    var configuredKey = configuration["StoreImport:AdminKey"];
+    if (string.IsNullOrWhiteSpace(configuredKey))
+    {
+        return Results.Problem(
+            "Store import is disabled. Configure StoreImport:AdminKey before using this endpoint.",
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+
+    var providedKey = request.Headers["X-StoreFetcher-Import-Key"].ToString();
+    if (string.IsNullOrWhiteSpace(providedKey) || !SecretEquals(configuredKey, providedKey))
+    {
+        return Results.Unauthorized();
+    }
+
+    var contentType = request.ContentType ?? "";
+    if (!contentType.StartsWith("multipart/form-data", StringComparison.OrdinalIgnoreCase) &&
+        !contentType.StartsWith("application/json", StringComparison.OrdinalIgnoreCase))
+    {
+        return Results.BadRequest(new
+        {
+            error = "Send multipart/form-data with a file field named 'file', or send raw application/json.",
+        });
+    }
+
+    try
+    {
+        PreparedStoreImportResult result;
+
+        if (contentType.StartsWith("multipart/form-data", StringComparison.OrdinalIgnoreCase))
+        {
+            var form = await request.ReadFormAsync(cancellationToken);
+            var file = form.Files.GetFile("file") ?? form.Files.FirstOrDefault();
+            if (file is null)
+            {
+                return Results.BadRequest(new { error = "Missing import file. Use a file field named 'file'." });
+            }
+
+            await using var stream = file.OpenReadStream();
+            result = await importer.ImportPreparedJsonAsync(stream, cancellationToken);
+        }
+        else
+        {
+            result = await importer.ImportPreparedJsonAsync(request.Body, cancellationToken);
+        }
+
+        return Results.Ok(result);
+    }
+    catch (JsonException ex)
+    {
+        logger.LogWarning(ex, "Prepared store import failed because the JSON was invalid.");
+        return Results.BadRequest(new { error = "Import file is not valid JSON." });
+    }
+    catch (InvalidDataException ex)
+    {
+        logger.LogWarning(ex, "Prepared store import failed validation.");
+        return Results.BadRequest(new { error = ex.Message });
+    }
+})
+.WithName("ImportPreparedStores")
+.Accepts<IFormFile>("multipart/form-data")
+.Accepts<PreparedStoreDataset>("application/json")
+.DisableAntiforgery()
+;
+
 app.MapPost("/api/scan-jobs/osm-sweden", (
     IStoreScanQueue queue,
     int limit = 1000) =>
@@ -196,8 +272,41 @@ app.MapPost("/api/scan-jobs/osm-sweden", (
 .WithName("EnqueueSwedenOsmScan")
 ;
 
+app.MapPost("/api/scan-jobs/osm-place", (
+    IStoreScanQueue queue,
+    string place,
+    int limit = 1000) =>
+{
+    place = place.Trim();
+    if (string.IsNullOrWhiteSpace(place))
+    {
+        return Results.BadRequest(new { error = "Place is required." });
+    }
+
+    if (place.Length > 160)
+    {
+        return Results.BadRequest(new { error = "Place must be 160 characters or fewer." });
+    }
+
+    limit = Math.Clamp(limit, 1, 50000);
+    var result = queue.EnqueuePlaceOsmScan(place, limit);
+    return result.Enabled
+        ? Results.Accepted($"/hangfire/jobs/details/{result.JobId}", result)
+        : Results.Problem(result.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
+})
+.WithName("EnqueuePlaceOsmScan")
+;
+
 app.MapStaticAssets();
 app.MapRazorPages()
    .WithStaticAssets();
 
 app.Run();
+
+static bool SecretEquals(string expected, string provided)
+{
+    var expectedBytes = Encoding.UTF8.GetBytes(expected);
+    var providedBytes = Encoding.UTF8.GetBytes(provided);
+    return expectedBytes.Length == providedBytes.Length &&
+        CryptographicOperations.FixedTimeEquals(expectedBytes, providedBytes);
+}

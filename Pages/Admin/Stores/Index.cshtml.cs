@@ -7,7 +7,10 @@ using StoreFetcher.Services;
 
 namespace StoreFetcher.Pages.Admin.Stores;
 
-public sealed class IndexModel(StoreFetcherDbContext db, IStoreScanQueue scanQueue) : PageModel
+public sealed class IndexModel(
+    StoreFetcherDbContext db,
+    IStoreScanQueue scanQueue,
+    IStoreScanMonitor scanMonitor) : PageModel
 {
     [BindProperty(SupportsGet = true)]
     public string? Q { get; set; }
@@ -17,6 +20,7 @@ public sealed class IndexModel(StoreFetcherDbContext db, IStoreScanQueue scanQue
 
     public IReadOnlyList<Store> Stores { get; private set; } = [];
     public int TotalCount { get; private set; }
+    public StoreScanStatus ScanStatus { get; private set; } = new(false, 0, 0, 0, 0);
 
     public async Task OnGetAsync()
     {
@@ -43,6 +47,7 @@ public sealed class IndexModel(StoreFetcherDbContext db, IStoreScanQueue scanQue
 
         TotalCount = await query.CountAsync();
         Stores = await query.Take(100).ToListAsync();
+        ScanStatus = scanMonitor.GetStatus();
     }
 
     public IActionResult OnPostScan(int limit)
@@ -50,7 +55,30 @@ public sealed class IndexModel(StoreFetcherDbContext db, IStoreScanQueue scanQue
         limit = Math.Clamp(limit, 1, 50000);
         var result = scanQueue.EnqueueSwedenOsmScan(limit);
         StatusMessage = result.Enabled
-            ? $"{result.Message} Limit {limit}."
+            ? $"{result.Message} Sweden limit {limit}."
+            : result.Message;
+        return RedirectToPage(new { Q });
+    }
+
+    public IActionResult OnPostPlaceScan(string place, int limit)
+    {
+        place = place.Trim();
+        if (string.IsNullOrWhiteSpace(place))
+        {
+            StatusMessage = "Enter a Swedish city, municipality, or administrative place to scan.";
+            return RedirectToPage(new { Q });
+        }
+
+        if (place.Length > 160)
+        {
+            StatusMessage = "Place must be 160 characters or fewer.";
+            return RedirectToPage(new { Q });
+        }
+
+        limit = Math.Clamp(limit, 1, 50000);
+        var result = scanQueue.EnqueuePlaceOsmScan(place, limit);
+        StatusMessage = result.Enabled
+            ? $"{result.Message} Place limit {limit}."
             : result.Message;
         return RedirectToPage(new { Q });
     }

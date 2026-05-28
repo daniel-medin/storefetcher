@@ -12,6 +12,22 @@ public sealed class OverpassClient(HttpClient httpClient, ILogger<OverpassClient
         CancellationToken cancellationToken = default)
     {
         var query = BuildSwedenQuery(limit);
+        return await FetchAsync(query, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<OverpassElement>> FetchPlaceGroceryStoresAsync(
+        string place,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        var query = BuildPlaceQuery(place, limit);
+        return await FetchAsync(query, cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<OverpassElement>> FetchAsync(
+        string query,
+        CancellationToken cancellationToken)
+    {
         using var body = new FormUrlEncodedContent(new Dictionary<string, string>
         {
             ["data"] = query,
@@ -36,6 +52,21 @@ public sealed class OverpassClient(HttpClient httpClient, ILogger<OverpassClient
         return result?.Elements ?? [];
     }
 
+    private static string BuildPlaceQuery(string place, int limit)
+    {
+        var escapedPlace = EscapeOverpassRegex(place);
+
+        return $"""
+        [out:json][timeout:180];
+        area["ISO3166-1"="SE"][admin_level=2]->.sweden;
+        area(area.sweden)["boundary"="administrative"]["name"~"^{escapedPlace}$",i]->.place;
+        (
+          nwr["shop"~"^(supermarket|grocery|convenience)$"]["name"](area.place);
+        );
+        out tags center {limit};
+        """;
+    }
+
     private static string BuildSwedenQuery(int limit) =>
         $"""
         [out:json][timeout:180];
@@ -45,6 +76,27 @@ public sealed class OverpassClient(HttpClient httpClient, ILogger<OverpassClient
         );
         out tags center {limit};
         """;
+
+    private static string EscapeOverpassRegex(string value)
+    {
+        var escaped = value
+            .Replace(@"\", @"\\")
+            .Replace("^", @"\^")
+            .Replace("$", @"\$")
+            .Replace(".", @"\.")
+            .Replace("*", @"\*")
+            .Replace("+", @"\+")
+            .Replace("?", @"\?")
+            .Replace("(", @"\(")
+            .Replace(")", @"\)")
+            .Replace("[", @"\[")
+            .Replace("]", @"\]")
+            .Replace("{", @"\{")
+            .Replace("}", @"\}")
+            .Replace("|", @"\|");
+
+        return escaped.Replace("\"", "\\\"");
+    }
 }
 
 public sealed record OverpassResponse(

@@ -4,21 +4,54 @@
     ViewData["Title"] = "Stores";
 }
 
-<div class="d-flex align-items-center justify-content-between gap-3 mb-3">
+<div class="store-admin-header mb-3">
     <div>
         <h1 class="h3 mb-1">Stores</h1>
         <p class="text-muted mb-0">@Model.TotalCount records found</p>
     </div>
-    <form method="post" asp-page-handler="Scan" class="d-flex align-items-center gap-2">
-        <input class="form-control form-control-sm scan-limit" type="number" name="limit" value="25" min="1" max="50000" aria-label="Scan limit" />
-        <button class="btn btn-sm btn-outline-primary" type="submit">Queue scan</button>
-    </form>
+    <div class="scan-actions">
+        <form method="post" asp-page-handler="PlaceScan" class="scan-form">
+            <input type="hidden" asp-for="Q" />
+            <input class="form-control form-control-sm scan-place" type="text" name="place" placeholder="City or municipality" aria-label="Place to scan" />
+            <input class="form-control form-control-sm scan-limit" type="number" name="limit" value="250" min="1" max="50000" aria-label="Place scan limit" />
+            <button class="btn btn-sm btn-primary" type="submit">Queue place scan</button>
+        </form>
+        <form method="post" asp-page-handler="Scan" class="scan-form scan-form-compact">
+            <input type="hidden" asp-for="Q" />
+            <input class="form-control form-control-sm scan-limit" type="number" name="limit" value="1000" min="1" max="50000" aria-label="Sweden scan limit" />
+            <button class="btn btn-sm btn-outline-primary" type="submit">Queue Sweden scan</button>
+        </form>
+    </div>
 </div>
 
 @if (!string.IsNullOrWhiteSpace(Model.StatusMessage))
 {
     <div class="alert alert-info py-2">@Model.StatusMessage</div>
 }
+
+<div class="scan-status mb-3">
+    <div>
+        <div class="scan-status-title">Background scans</div>
+        <div class="scan-status-text">
+            @if (Model.ScanStatus.Enabled)
+            {
+                <span>@Model.ScanStatus.Processing processing</span>
+                <span>@Model.ScanStatus.Enqueued queued</span>
+                <span>@Model.ScanStatus.Scheduled scheduled</span>
+                <span>@Model.ScanStatus.Failed failed</span>
+            }
+            else
+            {
+                <span>Disabled</span>
+            }
+        </div>
+        @if (!string.IsNullOrWhiteSpace(Model.ScanStatus.Message))
+        {
+            <div class="text-muted small">@Model.ScanStatus.Message</div>
+        }
+    </div>
+    <a class="btn btn-sm btn-outline-secondary" href="/hangfire/jobs/enqueued">Open jobs</a>
+</div>
 
 <form method="get" class="store-search mb-3">
     <input class="form-control" asp-for="Q" placeholder="Search name, brand, street, or city" />
