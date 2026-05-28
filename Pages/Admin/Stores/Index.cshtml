@@ -4,24 +4,12 @@
     ViewData["Title"] = "Stores";
 }
 
-<div class="store-admin-header mb-3">
+<div class="store-page-header mb-3">
     <div>
         <h1 class="h3 mb-1">Stores</h1>
         <p class="text-muted mb-0">@Model.TotalCount records found</p>
     </div>
-    <div class="scan-actions">
-        <form method="post" asp-page-handler="PlaceScan" class="scan-form">
-            <input type="hidden" asp-for="Q" />
-            <input class="form-control form-control-sm scan-place" type="text" name="place" placeholder="City or municipality" aria-label="Place to scan" />
-            <input class="form-control form-control-sm scan-limit" type="number" name="limit" value="250" min="1" max="50000" aria-label="Place scan limit" />
-            <button class="btn btn-sm btn-primary" type="submit">Queue place scan</button>
-        </form>
-        <form method="post" asp-page-handler="Scan" class="scan-form scan-form-compact">
-            <input type="hidden" asp-for="Q" />
-            <input class="form-control form-control-sm scan-limit" type="number" name="limit" value="1000" min="1" max="50000" aria-label="Sweden scan limit" />
-            <button class="btn btn-sm btn-outline-primary" type="submit">Queue Sweden scan</button>
-        </form>
-    </div>
+    <a class="btn btn-success" asp-page="/Admin/Stores/Create">Create store</a>
 </div>
 
 @if (!string.IsNullOrWhiteSpace(Model.StatusMessage))
@@ -29,9 +17,32 @@
     <div class="alert alert-info py-2">@Model.StatusMessage</div>
 }
 
-<div class="scan-status mb-3">
-    <div>
-        <div class="scan-status-title">Background scans</div>
+<form method="get" class="store-search mb-3" data-store-grid-search>
+    <input class="form-control" asp-for="Q" placeholder="Search name, brand, street, or city" autocomplete="off" data-store-grid-query />
+    <button class="btn btn-primary" type="submit">Search</button>
+    @if (!string.IsNullOrWhiteSpace(Model.Q))
+    {
+        <a class="btn btn-outline-secondary" asp-page="/Admin/Stores/Index">Clear</a>
+    }
+</form>
+
+<div class="admin-tool-grid mb-3">
+    <section class="admin-tool-panel">
+        <div class="tool-panel-header">
+            <h2 class="h6 mb-0">OSM scans</h2>
+            <a class="btn btn-sm btn-outline-secondary" href="/hangfire/jobs/enqueued">Open jobs</a>
+        </div>
+        <form method="post" asp-page-handler="PlaceScan" class="scan-form">
+            <input type="hidden" asp-for="Q" />
+            <input class="form-control form-control-sm scan-place" type="text" name="place" placeholder="City or municipality" aria-label="Place to scan" />
+            <input class="form-control form-control-sm scan-limit" type="number" name="limit" value="250" min="1" max="50000" aria-label="Place scan limit" />
+            <button class="btn btn-sm btn-primary" type="submit">Queue place</button>
+        </form>
+        <form method="post" asp-page-handler="Scan" class="scan-form scan-form-compact">
+            <input type="hidden" asp-for="Q" />
+            <input class="form-control form-control-sm scan-limit" type="number" name="limit" value="1000" min="1" max="50000" aria-label="Sweden scan limit" />
+            <button class="btn btn-sm btn-outline-primary" type="submit">Queue Sweden</button>
+        </form>
         <div class="scan-status-text">
             @if (Model.ScanStatus.Enabled)
             {
@@ -49,50 +60,113 @@
         {
             <div class="text-muted small">@Model.ScanStatus.Message</div>
         }
-    </div>
-    <a class="btn btn-sm btn-outline-secondary" href="/hangfire/jobs/enqueued">Open jobs</a>
+    </section>
+
+    <section class="admin-tool-panel admin-tool-panel-wide">
+        <div class="tool-panel-header">
+            <div>
+                <h2 class="h6 mb-0">Address enrichment</h2>
+                <div class="text-muted small">@Model.MissingAddressCount missing or incomplete</div>
+            </div>
+            <div class="address-status @(Model.AddressEnrichmentStatus.Running ? "address-status-running" : "")"
+                 data-address-status
+                 data-running="@Model.AddressEnrichmentStatus.Running.ToString().ToLowerInvariant()">
+                <span data-address-status-message>@Model.AddressEnrichmentStatus.Message</span>
+                <span data-address-status-pid>
+                    @if (Model.AddressEnrichmentStatus.ProcessId is not null)
+                    {
+                        @($"PID {Model.AddressEnrichmentStatus.ProcessId}")
+                    }
+                </span>
+            </div>
+        </div>
+
+        <form method="post" asp-page-handler="AddressEnrichment" class="address-enrichment-form">
+            <input type="hidden" asp-for="Q" />
+            <div>
+                <label class="form-label" asp-for="LantmaterietPath">Lantmäteriet file</label>
+                <input class="form-control form-control-sm" asp-for="LantmaterietPath" placeholder="data/lantmateriet-addresses.geojson" />
+            </div>
+            <div>
+                <label class="form-label" asp-for="AddressMaxStores">Limit</label>
+                <input class="form-control form-control-sm" asp-for="AddressMaxStores" type="number" min="1" max="50000" placeholder="All" />
+            </div>
+            <label class="form-check address-check">
+                <input class="form-check-input" asp-for="UseOsmAddressFallback" />
+                <span class="form-check-label">OSM fallback</span>
+            </label>
+            <label class="form-check address-check">
+                <input class="form-check-input" asp-for="UseOsmPlaceFallback" />
+                <span class="form-check-label">City/ort fallback</span>
+            </label>
+            <button class="btn btn-sm btn-primary" type="submit" disabled="@Model.AddressEnrichmentStatus.Running" data-address-run-button>
+                @(Model.AddressEnrichmentStatus.Running ? "Searching..." : "Find addresses")
+            </button>
+        </form>
+
+        <form method="post" asp-page-handler="ImportEnrichedAddresses" class="address-import-row">
+            <input type="hidden" asp-for="Q" />
+            <div class="address-file-summary">
+                <div>
+                    <div class="address-file-title">Confident matches</div>
+                    <div class="text-muted small" data-address-enriched-summary>@Model.FormatAddressFileSummary(Model.EnrichedImportSummary)</div>
+                </div>
+                <div>
+                    <div class="address-file-title">Review</div>
+                    <div class="text-muted small" data-address-review-summary>@Model.FormatAddressFileSummary(Model.AddressReviewSummary)</div>
+                </div>
+            </div>
+            <a class="btn btn-sm btn-outline-secondary" asp-page="/Admin/Stores/AddressReview">Open review</a>
+            <button class="btn btn-sm btn-success" type="submit" disabled="@(!Model.EnrichedImportSummary.Exists || Model.AddressEnrichmentStatus.Running)" data-address-import-button>
+                Import matches
+            </button>
+        </form>
+    </section>
 </div>
 
-<form method="get" class="store-search mb-3">
-    <input class="form-control" asp-for="Q" placeholder="Search name, brand, street, or city" />
-    <button class="btn btn-primary" type="submit">Search</button>
-    @if (!string.IsNullOrWhiteSpace(Model.Q))
-    {
-        <a class="btn btn-outline-secondary" asp-page="/Admin/Stores/Index">Clear</a>
-    }
-</form>
+<div class="store-grid"
+     data-store-grid
+     data-initial-query="@Model.Q"
+     data-page-size="100"
+     data-edit-base-url="/Admin/Stores/Edit">
+    <div class="store-grid-toolbar">
+        <div data-store-grid-status>Loading stores...</div>
+        <label class="store-page-size">
+            Rows
+            <select class="form-select form-select-sm" data-store-grid-page-size>
+                <option value="50">50</option>
+                <option value="100" selected>100</option>
+                <option value="250">250</option>
+            </select>
+        </label>
+    </div>
 
-<div class="table-responsive">
+    <div class="table-responsive">
     <table class="table table-sm align-middle store-table">
         <thead>
             <tr>
-                <th>Name</th>
-                <th>Brand</th>
-                <th>Address</th>
-                <th>Coordinates</th>
-                <th>Correction</th>
-                <th>Updated</th>
+                <th><button class="table-sort" type="button" data-sort="name">Name</button></th>
+                <th><button class="table-sort" type="button" data-sort="brand">Brand</button></th>
+                <th><button class="table-sort" type="button" data-sort="address">Address</button></th>
+                <th><button class="table-sort" type="button" data-sort="coordinates">Coordinates</button></th>
+                <th><button class="table-sort" type="button" data-sort="correction">Correction</button></th>
+                <th><button class="table-sort" type="button" data-sort="updated">Updated</button></th>
                 <th></th>
             </tr>
         </thead>
-        <tbody>
-            @foreach (var store in Model.Stores)
-            {
-                <tr>
-                    <td>
-                        <div class="fw-semibold">@Model.Name(store)</div>
-                        <a href="@store.OsmUrl" target="_blank" rel="noreferrer">@store.OsmType/@store.OsmId</a>
-                    </td>
-                    <td>@Model.Brand(store)</td>
-                    <td>@Model.FormatAddress(store)</td>
-                    <td>@Model.Latitude(store).ToString("F6"), @Model.Longitude(store).ToString("F6")</td>
-                    <td>@(store.Correction is null ? "No" : "Yes")</td>
-                    <td>@Model.UpdatedAt(store).ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
-                    <td class="text-end">
-                        <a class="btn btn-sm btn-outline-primary" asp-page="/Admin/Stores/Edit" asp-route-id="@store.Id">Edit</a>
-                    </td>
-                </tr>
-            }
+        <tbody data-store-grid-body>
+            <tr>
+                <td colspan="7" class="text-muted py-3">Loading stores...</td>
+            </tr>
         </tbody>
     </table>
+    </div>
+
+    <div class="store-grid-pager">
+        <button class="btn btn-sm btn-outline-secondary" type="button" data-page-action="first">First</button>
+        <button class="btn btn-sm btn-outline-secondary" type="button" data-page-action="prev">Previous</button>
+        <span data-store-grid-page-info>Page 1</span>
+        <button class="btn btn-sm btn-outline-secondary" type="button" data-page-action="next">Next</button>
+        <button class="btn btn-sm btn-outline-secondary" type="button" data-page-action="last">Last</button>
+    </div>
 </div>

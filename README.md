@@ -51,13 +51,16 @@ GET /swagger
 ### Search Stores
 
 ```http
-GET /api/stores?q=ica&brand=ICA&page=1&pageSize=50
+GET /api/stores?q=ica&brand=ICA&page=1&pageSize=100&sort=name&dir=asc
 ```
 
 Query parameters:
 
 - `q` searches name, city, street, and brand.
 - `brand` filters by brand.
+- `sort` accepts `name`, `brand`, `address`, `coordinates`, `correction`, or
+  `updated`.
+- `dir` accepts `asc` or `desc`.
 - `page` defaults to `1`.
 - `pageSize` defaults to `50` and is clamped between `1` and `250`.
 
@@ -245,9 +248,11 @@ npm run enrich:addresses --api=http://localhost:5112
 
 The script writes `data/address-enriched-import.json` for high-confidence
 address updates and `data/address-review.json` for missing or ambiguous
-matches. Pass a local Lantmateriet `Belagenhetsadress` GeoJSON or CSV export
-with `--lantmateriet=data/lantmateriet-addresses.geojson` for better Swedish
-address matching.
+matches. If a full street address cannot be found, the OSM fallback can still
+fill a missing city/ort from nearby place data. Pass a local Lantmateriet
+`Belagenhetsadress` GeoJSON or CSV export with
+`--lantmateriet=data/lantmateriet-addresses.geojson` for better Swedish address
+matching. Use `--no-place-lookup` to disable the city/ort fallback.
 
 ## OpenStreetMap License
 

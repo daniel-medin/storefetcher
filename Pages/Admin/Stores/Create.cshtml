@@ -1,20 +1,19 @@
-@page "{id:int}"
-@model StoreFetcher.Pages.Admin.Stores.EditModel
+@page
+@model StoreFetcher.Pages.Admin.Stores.CreateModel
 @{
-    ViewData["Title"] = "Edit store";
+    ViewData["Title"] = "Create store";
 }
 
 <div class="d-flex align-items-center justify-content-between gap-3 mb-3">
     <div>
-        <h1 class="h3 mb-1">Edit store</h1>
-        <p class="text-muted mb-0">Saved changes are stored as StoreFetcher corrections, not written over imported OSM facts.</p>
+        <h1 class="h3 mb-1">Create store</h1>
+        <p class="text-muted mb-0">Manual stores are kept separate from imported OSM records.</p>
     </div>
     <a class="btn btn-outline-secondary" asp-page="/Admin/Stores/Index">Back</a>
 </div>
 
 <form method="post" class="edit-grid">
-    <div asp-validation-summary="ModelOnly" class="text-danger"></div>
-    <input asp-for="Input.Id" type="hidden" />
+    <div asp-validation-summary="ModelOnly" class="text-danger edit-wide"></div>
 
     <label>
         Name
@@ -50,11 +49,13 @@
     <label>
         Latitude
         <input class="form-control" asp-for="Input.Latitude" />
+        <span class="text-danger" asp-validation-for="Input.Latitude"></span>
     </label>
 
     <label>
         Longitude
         <input class="form-control" asp-for="Input.Longitude" />
+        <span class="text-danger" asp-validation-for="Input.Longitude"></span>
     </label>
 
     <label>
@@ -74,7 +75,7 @@
 
     <label>
         Shop type
-        <input class="form-control" asp-for="Input.Shop" />
+        <input class="form-control" asp-for="Input.Shop" placeholder="supermarket" />
     </label>
 
     <label class="edit-wide">
@@ -88,11 +89,8 @@
     </label>
 
     <div class="edit-actions">
-        <button class="btn btn-primary" type="submit">Save</button>
-        @if (Model.Input.HasOsmUrl)
-        {
-            <a class="btn btn-outline-secondary" href="@Model.Input.OsmUrl" target="_blank" rel="noreferrer">Open OSM</a>
-        }
+        <button class="btn btn-primary" type="submit">Create</button>
+        <a class="btn btn-outline-secondary" asp-page="/Admin/Stores/Index">Cancel</a>
     </div>
 </form>
 

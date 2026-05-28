@@ -18,7 +18,9 @@ function readArgs() {
     lantmaterietPath: null,
     overpassEndpoint: DEFAULT_OVERPASS_ENDPOINT,
     useOsm: true,
+    usePlaceLookup: true,
     radiusMeters: 80,
+    placeRadiusMeters: 10_000,
     acceptDistanceMeters: 35,
     ambiguityGapMeters: 25,
     chunkSize: 25,
@@ -63,6 +65,11 @@ function readArgs() {
       continue;
     }
 
+    if (arg === "--no-place-lookup") {
+      args.usePlaceLookup = false;
+      continue;
+    }
+
     if (arg === "--overwrite") {
       args.overwrite = true;
       continue;
@@ -70,6 +77,11 @@ function readArgs() {
 
     if (arg.startsWith("--radius-meters=")) {
       args.radiusMeters = readPositiveNumber(arg, "--radius-meters=");
+      continue;
+    }
+
+    if (arg.startsWith("--place-radius-meters=")) {
+      args.placeRadiusMeters = readPositiveNumber(arg, "--place-radius-meters=");
       continue;
     }
 
@@ -137,8 +149,17 @@ function readNpmConfigArgs(args) {
     env.npm_config_osm === "" || env.npm_config_osm === "false"
       ? false
       : args.useOsm;
+  args.usePlaceLookup = envFlag(env.npm_config_no_place_lookup)
+    ? false
+    : args.usePlaceLookup;
+  args.usePlaceLookup =
+    env.npm_config_place_lookup === "" || env.npm_config_place_lookup === "false"
+      ? false
+      : args.usePlaceLookup;
   args.overwrite = envFlag(env.npm_config_overwrite) || args.overwrite;
   args.radiusMeters = envNumber(env.npm_config_radius_meters) ?? args.radiusMeters;
+  args.placeRadiusMeters =
+    envNumber(env.npm_config_place_radius_meters) ?? args.placeRadiusMeters;
   args.acceptDistanceMeters =
     envNumber(env.npm_config_accept_distance_meters) ??
     args.acceptDistanceMeters;
@@ -201,7 +222,9 @@ Options:
   --output=path                    Prepared JSON import output.
   --review=path                    JSON review report for uncertain matches.
   --no-osm                         Skip Overpass fallback.
+  --no-place-lookup                Skip OSM city/ort fallback.
   --radius-meters=80               Candidate search radius.
+  --place-radius-meters=10000      City/ort lookup radius.
   --accept-distance-meters=35      Auto-accept distance for complete addresses.
   --ambiguity-gap-meters=25        Review when another address is this close.
   --chunk-size=25                  Number of stores per Overpass request.
@@ -333,6 +356,14 @@ function hasMissingAddress(store, overwrite) {
 
   const address = store.prepared.address ?? {};
   return !address.street || !address.house_number || !address.postcode || !address.city;
+}
+
+function hasMissingCity(store, overwrite) {
+  if (overwrite) {
+    return true;
+  }
+
+  return !clean(store.prepared.address?.city);
 }
 
 async function loadAddressSource(path, radiusMeters) {
@@ -604,6 +635,37 @@ async function fetchOsmCandidatesByStore(stores, args) {
   return byKey;
 }
 
+async function fetchOsmPlaceCandidatesByStore(stores, args) {
+  const byKey = new Map(stores.map((store) => [storeKey(store), []]));
+  const chunks = chunk(stores, args.chunkSize);
+
+  for (let index = 0; index < chunks.length; index++) {
+    const batch = chunks[index];
+    console.log(`OSM place lookup ${index + 1}/${chunks.length} (${batch.length} stores)...`);
+    const candidates = await fetchOsmPlaceCandidates(batch, args);
+
+    for (const store of batch) {
+      const lat = store.prepared.lat;
+      const lon = store.prepared.lon;
+      const matches = candidates
+        .map((candidate) => ({
+          ...candidate,
+          distanceMeters: distance(lat, lon, candidate.lat, candidate.lon),
+        }))
+        .filter((candidate) => candidate.distanceMeters <= args.placeRadiusMeters)
+        .sort(comparePlaceCandidates);
+
+      byKey.set(storeKey(store), matches);
+    }
+
+    if (index < chunks.length - 1 && args.delayMs > 0) {
+      await sleep(args.delayMs);
+    }
+  }
+
+  return byKey;
+}
+
 async function fetchOsmAddressCandidates(stores, args) {
   const query = buildOverpassAddressQuery(stores, args.radiusMeters);
   const response = await fetch(args.overpassEndpoint, {
@@ -626,6 +688,28 @@ async function fetchOsmAddressCandidates(stores, args) {
   return (data.elements ?? []).map(osmCandidateFromElement).filter(Boolean);
 }
 
+async function fetchOsmPlaceCandidates(stores, args) {
+  const query = buildOverpassPlaceQuery(stores, args.placeRadiusMeters);
+  const response = await fetch(args.overpassEndpoint, {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded;charset=UTF-8",
+      "user-agent": DEFAULT_USER_AGENT,
+    },
+    body: new URLSearchParams({ data: query }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(
+      `Overpass place request failed: ${response.status} ${response.statusText}\n${body}`,
+    );
+  }
+
+  const data = await response.json();
+  return (data.elements ?? []).map(osmPlaceCandidateFromElement).filter(Boolean);
+}
+
 function buildOverpassAddressQuery(stores, radiusMeters) {
   const clauses = stores
     .map((store) => {
@@ -635,6 +719,24 @@ function buildOverpassAddressQuery(stores, radiusMeters) {
         `nwr(around:${radiusMeters},${lat},${lon})["addr:street"]["addr:housenumber"];`,
         `nwr(around:${radiusMeters},${lat},${lon})["addr:postcode"];`,
       ].join("\n");
+    })
+    .join("\n");
+
+  return `
+[out:json][timeout:120];
+(
+${clauses}
+);
+out tags center;
+`.trim();
+}
+
+function buildOverpassPlaceQuery(stores, radiusMeters) {
+  const clauses = stores
+    .map((store) => {
+      const lat = Number(store.prepared.lat).toFixed(7);
+      const lon = Number(store.prepared.lon).toFixed(7);
+      return `nwr(around:${radiusMeters},${lat},${lon})["place"~"^(city|town|village|hamlet|suburb|neighbourhood|locality|municipality)$"]["name"];`;
     })
     .join("\n");
 
@@ -673,6 +775,38 @@ function osmCandidateFromElement(element) {
       osm_type: element.type,
       osm_id: element.id,
       osm_url: `https://www.openstreetmap.org/${element.type}/${element.id}`,
+    },
+  };
+}
+
+function osmPlaceCandidateFromElement(element) {
+  const tags = element.tags ?? {};
+  const lat = element.lat ?? element.center?.lat;
+  const lon = element.lon ?? element.center?.lon;
+  const name = clean(tags.name);
+  const place = clean(tags.place);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || !name || !place) {
+    return null;
+  }
+
+  return {
+    source: "osm_place",
+    lat,
+    lon,
+    place,
+    address: {
+      street: null,
+      house_number: null,
+      postcode: null,
+      city: name,
+      country: "SE",
+    },
+    raw: {
+      osm_type: element.type,
+      osm_id: element.id,
+      osm_url: `https://www.openstreetmap.org/${element.type}/${element.id}`,
+      place,
     },
   };
 }
@@ -724,12 +858,59 @@ function chooseMatch(candidates, args) {
   };
 }
 
+function choosePlaceMatch(candidates) {
+  const usable = candidates
+    .filter((candidate) => candidate.address.city)
+    .sort(comparePlaceCandidates);
+
+  if (usable.length === 0) {
+    return {
+      accepted: false,
+      reason: "no_place_candidates",
+      candidates,
+    };
+  }
+
+  return {
+    accepted: true,
+    reason: "nearest_osm_place",
+    match: usable[0],
+    candidates: usable,
+  };
+}
+
 function compareCandidates(left, right) {
   const sourceOrder = { lantmateriet: 0, osm: 1 };
   return (
     (left.distanceMeters ?? 0) - (right.distanceMeters ?? 0) ||
     (sourceOrder[left.source] ?? 9) - (sourceOrder[right.source] ?? 9)
   );
+}
+
+function comparePlaceCandidates(left, right) {
+  return (
+    placeScore(left) - placeScore(right) ||
+    normalizeComparable(left.address.city).localeCompare(
+      normalizeComparable(right.address.city),
+    )
+  );
+}
+
+function placeScore(candidate) {
+  const kind = candidate.place ?? "address";
+  const weight = {
+    address: 1,
+    city: 0,
+    town: 1,
+    village: 2,
+    municipality: 2,
+    hamlet: 3,
+    suburb: 4,
+    neighbourhood: 5,
+    locality: 6,
+  }[kind] ?? 7;
+
+  return (candidate.distanceMeters ?? 0) + weight * 1000;
 }
 
 function sameAddress(left, right) {
@@ -857,10 +1038,12 @@ async function main() {
   console.log(`Loaded ${originalStoreCount} stores; ${missing.length} need address enrichment.`);
 
   const byKey = new Map(missing.map((store) => [storeKey(store), []]));
+  const placeByKey = new Map(missing.map((store) => [storeKey(store), []]));
   const stats = {
     total_stores: originalStoreCount,
     checked_stores: missing.length,
     enriched: 0,
+    city_enriched: 0,
     review: 0,
     no_candidates: 0,
     skipped_corrected_from_api: 0,
@@ -901,6 +1084,23 @@ async function main() {
     }
   }
 
+  const missingCity = missing.filter((store) => hasMissingCity(store, args.overwrite));
+  if (
+    args.useOsm &&
+    args.usePlaceLookup &&
+    args.placeRadiusMeters > 0 &&
+    missingCity.length > 0
+  ) {
+    const osmPlaceByKey = await fetchOsmPlaceCandidatesByStore(missingCity, args);
+    for (const store of missingCity) {
+      const combined = [
+        ...(byKey.get(storeKey(store)) ?? []).filter((candidate) => candidate.address.city),
+        ...(osmPlaceByKey.get(storeKey(store)) ?? []),
+      ].sort(comparePlaceCandidates);
+      placeByKey.set(storeKey(store), combined);
+    }
+  }
+
   for (const store of missing) {
     if (dataset.source === "api" && store.hasCorrection) {
       stats.skipped_corrected_from_api++;
@@ -929,10 +1129,29 @@ async function main() {
       store.prepared.address_enrichment = {
         source: decision.match.source,
         distance_meters: Math.round(decision.match.distanceMeters * 10) / 10,
+        fields: ["street", "house_number", "postcode", "city"],
         enriched_at: new Date().toISOString(),
       };
       enrichedStores.push(store.prepared);
       stats.enriched++;
+      continue;
+    }
+
+    const placeDecision = hasMissingCity(store, args.overwrite)
+      ? choosePlaceMatch(placeByKey.get(storeKey(store)) ?? [])
+      : { accepted: false };
+
+    if (placeDecision.accepted) {
+      applyAddress(store, placeDecision.match.address, args.overwrite);
+      store.prepared.address_enrichment = {
+        source: placeDecision.match.source,
+        distance_meters: Math.round(placeDecision.match.distanceMeters * 10) / 10,
+        fields: ["city"],
+        enriched_at: new Date().toISOString(),
+      };
+      enrichedStores.push(store.prepared);
+      stats.enriched++;
+      stats.city_enriched++;
       continue;
     }
 
@@ -953,10 +1172,12 @@ async function main() {
       lantmateriet_path: args.lantmaterietPath,
       overpass_endpoint: args.useOsm ? args.overpassEndpoint : null,
       radius_meters: args.radiusMeters,
+      place_lookup_enabled: args.useOsm && args.usePlaceLookup,
+      place_radius_meters: args.placeRadiusMeters,
       accept_distance_meters: args.acceptDistanceMeters,
       ambiguity_gap_meters: args.ambiguityGapMeters,
       count: enrichedStores.length,
-      note: "This prepared import contains only stores whose missing address fields were enriched automatically.",
+      note: "This prepared import contains stores whose missing street address or city fields were enriched automatically.",
     },
     stores: enrichedStores,
   };
@@ -975,6 +1196,7 @@ async function main() {
   const reviewPath = await writeJson(args.reviewPath, review);
 
   console.log(`Enriched ${stats.enriched} store(s).`);
+  console.log(`City-only enriched ${stats.city_enriched} store(s).`);
   console.log(`Sent ${reviews.length} store(s) to review.`);
   console.log(`Wrote import file: ${outputPath}`);
   console.log(`Wrote review file: ${reviewPath}`);

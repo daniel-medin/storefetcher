@@ -5,3 +5,5 @@ obj/
 *.suo
 appsettings.Local.json
 .keys/
+logs/
+Data/address-*.json

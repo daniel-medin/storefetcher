@@ -71,6 +71,7 @@ public sealed class EditModel(StoreFetcherDbContext db) : PageModel
         public string? Notes { get; set; }
         public bool IsActive { get; set; }
         public string OsmUrl { get; set; } = "";
+        public bool HasOsmUrl { get; set; }
 
         public static StoreInput FromStore(Store store) =>
             new()
@@ -91,6 +92,7 @@ public sealed class EditModel(StoreFetcherDbContext db) : PageModel
                 Notes = store.Correction?.Notes ?? store.Notes,
                 IsActive = store.Correction?.IsActive ?? store.IsActive,
                 OsmUrl = store.OsmUrl,
+                HasOsmUrl = store.OsmType != "manual" && store.OsmUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase),
             };
 
         public void ApplyTo(StoreCorrection correction)

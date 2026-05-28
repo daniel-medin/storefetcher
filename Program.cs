@@ -27,6 +27,7 @@ builder.Services.AddDbContext<StoreFetcherDbContext>(options =>
 builder.Services.AddHttpClient<OverpassClient>();
 builder.Services.AddScoped<StoreImportService>();
 builder.Services.AddScoped<StoreScanJob>();
+builder.Services.AddSingleton<IAddressEnrichmentRunner, AddressEnrichmentRunner>();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
@@ -88,18 +89,19 @@ app.MapGet("/api/stores", async (
     StoreFetcherDbContext db,
     string? q,
     string? brand,
+    string? sort,
+    string? dir,
     int page = 1,
     int pageSize = 50) =>
 {
     page = Math.Max(page, 1);
     pageSize = Math.Clamp(pageSize, 1, 250);
+    sort = string.IsNullOrWhiteSpace(sort) ? "name" : sort.Trim().ToLowerInvariant();
+    var descending = string.Equals(dir, "desc", StringComparison.OrdinalIgnoreCase);
 
     var query = db.Stores
         .AsNoTracking()
         .Include(store => store.Correction)
-        .OrderBy(store => store.Correction != null && store.Correction.Name != null
-            ? store.Correction.Name
-            : store.Name)
         .AsQueryable();
 
     if (!string.IsNullOrWhiteSpace(q))
@@ -121,6 +123,8 @@ app.MapGet("/api/stores", async (
             (store.Brand != null && store.Brand.Contains(brand)) ||
             (store.Correction != null && store.Correction.Brand != null && store.Correction.Brand.Contains(brand)));
     }
+
+    query = ApplyStoreSort(query, sort, descending);
 
     var total = await query.CountAsync();
     var storeRows = await query
@@ -164,6 +168,29 @@ app.MapGet("/api/dataset", async (StoreFetcherDbContext db) =>
         storeCount));
 })
 .WithName("GetDatasetMetadata")
+;
+
+app.MapGet("/api/admin/address-enrichment/status", (
+    IAddressEnrichmentRunner runner,
+    IWebHostEnvironment environment) =>
+{
+    var status = runner.GetStatus();
+    var outputPath = Path.Combine(environment.ContentRootPath, "data", "address-enriched-import.json");
+    var reviewPath = Path.Combine(environment.ContentRootPath, "data", "address-review.json");
+
+    return Results.Ok(new
+    {
+        status.Running,
+        status.ProcessId,
+        status.StartedAt,
+        status.FinishedAt,
+        status.ExitCode,
+        status.Message,
+        enrichedImport = ReadAddressSummary(outputPath, "stores"),
+        review = ReadAddressSummary(reviewPath, "reviews"),
+    });
+})
+.WithName("GetAddressEnrichmentStatus")
 ;
 
 app.MapPut("/api/stores/{id:int}", async (
@@ -310,3 +337,128 @@ static bool SecretEquals(string expected, string provided)
     return expectedBytes.Length == providedBytes.Length &&
         CryptographicOperations.FixedTimeEquals(expectedBytes, providedBytes);
 }
+
+static object ReadAddressSummary(string path, string arrayName)
+{
+    if (!File.Exists(path))
+    {
+        return new
+        {
+            exists = false,
+            count = (int?)null,
+            generatedAt = (DateTimeOffset?)null,
+            lastWriteTime = (DateTimeOffset?)null,
+        };
+    }
+
+    try
+    {
+        using var document = JsonDocument.Parse(File.ReadAllText(path));
+        var root = document.RootElement;
+        var count = root.TryGetProperty("metadata", out var metadata) &&
+            metadata.TryGetProperty("count", out var countElement) &&
+            countElement.TryGetInt32(out var metadataCount)
+                ? metadataCount
+                : CountJsonArray(root, arrayName);
+        var generatedAt = root.TryGetProperty("metadata", out metadata) &&
+            metadata.TryGetProperty("generated_at", out var generatedAtElement) &&
+            generatedAtElement.TryGetDateTimeOffset(out var parsedGeneratedAt)
+                ? parsedGeneratedAt
+                : (DateTimeOffset?)null;
+
+        return new
+        {
+            exists = true,
+            count,
+            generatedAt,
+            lastWriteTime = new DateTimeOffset(File.GetLastWriteTime(path)),
+        };
+    }
+    catch (JsonException)
+    {
+        return new
+        {
+            exists = true,
+            count = (int?)null,
+            generatedAt = (DateTimeOffset?)null,
+            lastWriteTime = new DateTimeOffset(File.GetLastWriteTime(path)),
+        };
+    }
+}
+
+static int? CountJsonArray(JsonElement root, string propertyName) =>
+    root.TryGetProperty(propertyName, out var array) && array.ValueKind == JsonValueKind.Array
+        ? array.GetArrayLength()
+        : null;
+
+static IQueryable<Store> ApplyStoreSort(
+    IQueryable<Store> query,
+    string sort,
+    bool descending) =>
+    sort switch
+    {
+        "brand" => descending
+            ? query.OrderByDescending(store => store.Correction != null && store.Correction.Brand != null
+                    ? store.Correction.Brand
+                    : store.Brand)
+                .ThenBy(store => store.Correction != null && store.Correction.Name != null
+                    ? store.Correction.Name
+                    : store.Name)
+            : query.OrderBy(store => store.Correction != null && store.Correction.Brand != null
+                    ? store.Correction.Brand
+                    : store.Brand)
+                .ThenBy(store => store.Correction != null && store.Correction.Name != null
+                    ? store.Correction.Name
+                    : store.Name),
+        "address" => descending
+            ? query.OrderByDescending(store => store.Correction != null && store.Correction.City != null
+                    ? store.Correction.City
+                    : store.City)
+                .ThenByDescending(store => store.Correction != null && store.Correction.Street != null
+                    ? store.Correction.Street
+                    : store.Street)
+                .ThenBy(store => store.Id)
+            : query.OrderBy(store => store.Correction != null && store.Correction.City != null
+                    ? store.Correction.City
+                    : store.City)
+                .ThenBy(store => store.Correction != null && store.Correction.Street != null
+                    ? store.Correction.Street
+                    : store.Street)
+                .ThenBy(store => store.Id),
+        "coordinates" => descending
+            ? query.OrderByDescending(store => store.Correction != null && store.Correction.Latitude != null
+                    ? store.Correction.Latitude
+                    : store.Latitude)
+                .ThenByDescending(store => store.Correction != null && store.Correction.Longitude != null
+                    ? store.Correction.Longitude
+                    : store.Longitude)
+                .ThenBy(store => store.Id)
+            : query.OrderBy(store => store.Correction != null && store.Correction.Latitude != null
+                    ? store.Correction.Latitude
+                    : store.Latitude)
+                .ThenBy(store => store.Correction != null && store.Correction.Longitude != null
+                    ? store.Correction.Longitude
+                    : store.Longitude)
+                .ThenBy(store => store.Id),
+        "correction" => descending
+            ? query.OrderByDescending(store => store.Correction != null).ThenBy(store => store.Id)
+            : query.OrderBy(store => store.Correction != null).ThenBy(store => store.Id),
+        "updated" => descending
+            ? query.OrderByDescending(store => store.Correction != null
+                    ? store.Correction.UpdatedAt
+                    : store.UpdatedAt)
+                .ThenBy(store => store.Id)
+            : query.OrderBy(store => store.Correction != null
+                    ? store.Correction.UpdatedAt
+                    : store.UpdatedAt)
+                .ThenBy(store => store.Id),
+        _ => descending
+            ? query.OrderByDescending(store => store.Correction != null && store.Correction.Name != null
+                    ? store.Correction.Name
+                    : store.Name)
+                .ThenBy(store => store.Id)
+            : query.OrderBy(store => store.Correction != null && store.Correction.Name != null
+                    ? store.Correction.Name
+                    : store.Name)
+                .ThenBy(store => store.Id),
+    };

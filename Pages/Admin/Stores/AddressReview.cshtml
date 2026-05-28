@@ -1,0 +1,116 @@
+@page
+@model StoreFetcher.Pages.Admin.Stores.AddressReviewModel
+@{
+    ViewData["Title"] = "Address review";
+}
+
+<div class="store-page-header mb-3">
+    <div>
+        <h1 class="h3 mb-1">Address review</h1>
+        <p class="text-muted mb-0">@Model.Reviews.Count uncertain address matches</p>
+    </div>
+    <a class="btn btn-outline-secondary" asp-page="/Admin/Stores/Index">Back to stores</a>
+</div>
+
+@if (TempData["StatusMessage"] is string statusMessage)
+{
+    <div class="alert alert-info py-2">@statusMessage</div>
+}
+
+@if (!Model.Reviews.Any())
+{
+    <div class="alert alert-info">No address review file exists yet, or it contains no review items.</div>
+}
+else
+{
+    <form method="post" asp-page-handler="AutoAccept" class="address-autoaccept-bar mb-3">
+        <label>
+            Auto-accept suggested matches within
+            <input class="form-control form-control-sm" type="number" name="maxDistanceMeters" value="15" min="1" max="100" step="1" />
+            meters
+        </label>
+        <button class="btn btn-sm btn-success" type="submit">Auto-accept</button>
+    </form>
+
+    <div class="table-responsive">
+        <table class="table table-sm align-middle address-review-table">
+            <thead>
+                <tr>
+                    <th>Store</th>
+                    <th>Reason</th>
+                    <th>Current</th>
+                    <th>Suggested</th>
+                    <th>Distance</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var item in Model.Reviews)
+                {
+                    <tr>
+                        <td>
+                            <div class="fw-semibold">@item.Store.Name</div>
+                            <div class="text-muted small">@item.Store.Latitude.ToString("F6"), @item.Store.Longitude.ToString("F6")</div>
+                        </td>
+                        <td>
+                            <span class="address-review-reason">@Model.FormatReason(item.Reason)</span>
+                        </td>
+                        <td>@Model.FormatAddress(item.Store.CurrentAddress)</td>
+                        <td>
+                            @if (item.SuggestedMatch is null)
+                            {
+                                <span class="text-muted">No suggestion</span>
+                            }
+                            else
+                            {
+                                @Model.FormatAddress(item.SuggestedMatch.Address)
+                            }
+                        </td>
+                        <td>
+                            @if (item.SuggestedMatch is not null)
+                            {
+                                <span>@item.SuggestedMatch.DistanceMeters.ToString("F1") m</span>
+                            }
+                        </td>
+                        <td class="address-review-row-actions">
+                            <form method="post" asp-page-handler="Accept" asp-route-storeId="@item.Store.Id">
+                                <button class="btn btn-sm btn-success" type="submit" disabled="@(item.SuggestedMatch is null)">Accept</button>
+                            </form>
+                            <form method="post" asp-page-handler="Reject" asp-route-storeId="@item.Store.Id">
+                                <button class="btn btn-sm btn-outline-danger" type="submit">Reject</button>
+                            </form>
+                            <a class="btn btn-sm btn-outline-primary" asp-page="/Admin/Stores/Edit" asp-route-id="@item.Store.Id">Edit</a>
+                            @if (!string.IsNullOrWhiteSpace(item.Store.Osm?.Url))
+                            {
+                                <a class="btn btn-sm btn-outline-secondary" href="@item.Store.Osm.Url" target="_blank" rel="noreferrer">OSM</a>
+                            }
+                        </td>
+                    </tr>
+                    @if (item.Candidates.Any())
+                    {
+                        <tr class="address-review-detail-row">
+                            <td colspan="6">
+                                <details>
+                                    <summary>@item.Candidates.Count candidate addresses</summary>
+                                    <div class="address-candidate-list">
+                                        @foreach (var candidate in item.Candidates)
+                                        {
+                                            <div class="address-candidate-chip">
+                                                <span>@candidate.DistanceMeters.ToString("F1") m</span>
+                                                <span>@Model.FormatAddress(candidate.Address)</span>
+                                                @if (!string.IsNullOrWhiteSpace(candidate.Raw?.OsmUrl))
+                                                {
+                                                    <a href="@candidate.Raw.OsmUrl" target="_blank" rel="noreferrer">Open</a>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                </details>
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+}
