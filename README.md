@@ -23,17 +23,20 @@ Update `ConnectionStrings:StoreFetcher` in `appsettings.json` or user secrets:
     "StoreFetcher": "Server=localhost;Port=3306;Database=storefetcher;User=storefetcher;Password=storefetcher;"
   },
   "Hangfire": {
+    "Enabled": true,
     "StartServer": true
   }
 }
 ```
 
-`Hangfire:StartServer` is `false` by default so the app can start before a
-local MariaDB instance is ready. Set it to `true` when you want jobs to run.
+`appsettings.Development.json` is configured for the local Docker database on
+`localhost:13306` with Hangfire enabled. Production/default settings keep
+Hangfire disabled until database credentials are configured.
 
 ## Commands
 
 ```sh
+docker compose up -d
 dotnet restore
 dotnet ef database update
 dotnet run

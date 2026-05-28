@@ -1,0 +1,22 @@
+services:
+  mariadb:
+    image: mariadb:11.4
+    container_name: storefetcher-mariadb
+    environment:
+      MARIADB_DATABASE: storefetcher
+      MARIADB_USER: storefetcher
+      MARIADB_PASSWORD: storefetcher
+      MARIADB_ROOT_PASSWORD: storefetcher-root
+    ports:
+      - "13306:3306"
+    volumes:
+      - storefetcher-mariadb:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+volumes:
+  storefetcher-mariadb:
