@@ -1,0 +1,63 @@
+@page
+@model StoreFetcher.Pages.Admin.Stores.IndexModel
+@{
+    ViewData["Title"] = "Stores";
+}
+
+<div class="d-flex align-items-center justify-content-between gap-3 mb-3">
+    <div>
+        <h1 class="h3 mb-1">Stores</h1>
+        <p class="text-muted mb-0">@Model.TotalCount records found</p>
+    </div>
+    <form method="post" asp-page-handler="Scan" class="d-flex align-items-center gap-2">
+        <input class="form-control form-control-sm scan-limit" type="number" name="limit" value="25" min="1" max="50000" aria-label="Scan limit" />
+        <button class="btn btn-sm btn-outline-primary" type="submit">Queue scan</button>
+    </form>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(Model.StatusMessage))
+{
+    <div class="alert alert-info py-2">@Model.StatusMessage</div>
+}
+
+<form method="get" class="store-search mb-3">
+    <input class="form-control" asp-for="Q" placeholder="Search name, brand, street, or city" />
+    <button class="btn btn-primary" type="submit">Search</button>
+    @if (!string.IsNullOrWhiteSpace(Model.Q))
+    {
+        <a class="btn btn-outline-secondary" asp-page="/Admin/Stores/Index">Clear</a>
+    }
+</form>
+
+<div class="table-responsive">
+    <table class="table table-sm align-middle store-table">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Brand</th>
+                <th>Address</th>
+                <th>Coordinates</th>
+                <th>Updated</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var store in Model.Stores)
+            {
+                <tr>
+                    <td>
+                        <div class="fw-semibold">@store.Name</div>
+                        <a href="@store.OsmUrl" target="_blank" rel="noreferrer">@store.OsmType/@store.OsmId</a>
+                    </td>
+                    <td>@store.Brand</td>
+                    <td>@Model.FormatAddress(store)</td>
+                    <td>@store.Latitude.ToString("F6"), @store.Longitude.ToString("F6")</td>
+                    <td>@store.UpdatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                    <td class="text-end">
+                        <a class="btn btn-sm btn-outline-primary" asp-page="/Admin/Stores/Edit" asp-route-id="@store.Id">Edit</a>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>

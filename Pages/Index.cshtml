@@ -1,0 +1,34 @@
+@page
+@model IndexModel
+@{
+    ViewData["Title"] = "StoreFetcher";
+}
+
+<div class="d-flex align-items-center justify-content-between gap-3 mb-4">
+    <div>
+        <h1 class="h2 mb-1">StoreFetcher</h1>
+        <p class="text-muted mb-0">Swedish grocery store data from OpenStreetMap, stored in MariaDB.</p>
+    </div>
+    <a class="btn btn-primary" asp-page="/Admin/Stores/Index">Open stores</a>
+</div>
+
+<div class="row g-3">
+    <div class="col-md-4">
+        <a class="dashboard-link" asp-page="/Admin/Stores/Index">
+            <span class="dashboard-link-title">Admin</span>
+            <span class="dashboard-link-text">Search and correct store records.</span>
+        </a>
+    </div>
+    <div class="col-md-4">
+        <a class="dashboard-link" href="/swagger">
+            <span class="dashboard-link-title">Swagger</span>
+            <span class="dashboard-link-text">Explore the API used by other apps.</span>
+        </a>
+    </div>
+    <div class="col-md-4">
+        <a class="dashboard-link" href="/hangfire">
+            <span class="dashboard-link-title">Hangfire</span>
+            <span class="dashboard-link-text">Monitor import jobs and retries.</span>
+        </a>
+    </div>
+</div>
