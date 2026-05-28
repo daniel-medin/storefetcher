@@ -225,8 +225,7 @@ POST /api/scan-jobs/osm-place?place=Stockholm&limit=250
 The desired workflow is to keep expensive data collection outside production:
 
 1. Run large Overpass fetches locally.
-2. Enrich missing store addresses locally with the root
-   `npm run enrich:addresses` workflow.
+2. Enrich missing store addresses locally with `npm run enrich:addresses`.
 3. Review `data/address-review.json` for uncertain address matches.
 4. Import/upload the prepared dataset into production with
    `POST /api/admin/import/stores`.
@@ -235,6 +234,20 @@ The desired workflow is to keep expensive data collection outside production:
 
 The import endpoint upserts by `OsmType` and `OsmId` and preserves
 `StoreCorrection` rows.
+
+Address enrichment can read either a prepared JSON file or the running local
+API:
+
+```sh
+npm run enrich:addresses --input=../data/place-grocery-stores.json
+npm run enrich:addresses --api=http://localhost:5112
+```
+
+The script writes `data/address-enriched-import.json` for high-confidence
+address updates and `data/address-review.json` for missing or ambiguous
+matches. Pass a local Lantmateriet `Belagenhetsadress` GeoJSON or CSV export
+with `--lantmateriet=data/lantmateriet-addresses.geojson` for better Swedish
+address matching.
 
 ## OpenStreetMap License
 
